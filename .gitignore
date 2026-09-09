@@ -4,6 +4,9 @@ DerivedData/
 *.xcworkspace/xcuserdata/
 .DS_Store
 
+# Local signing override (see Config/Signing.local.xcconfig.example)
+Config/Signing.local.xcconfig
+
 # Tooling
 .claude/
 

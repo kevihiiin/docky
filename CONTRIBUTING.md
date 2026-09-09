@@ -29,6 +29,28 @@ include:
 The project uses Xcode's file-system-synchronized groups, so new source files
 under `Docky/` are picked up automatically without editing the project file.
 
+### Signing
+
+Sign with your own certificate before you start:
+
+```sh
+cp Config/Signing.local.xcconfig.example Config/Signing.local.xcconfig
+# then set DEVELOPMENT_TEAM to your team ID
+```
+
+That file is gitignored. A free Apple ID added under Xcode -> Settings ->
+Accounts is enough — it creates a Personal Team and issues the certificate.
+
+Without it, builds fall back to ad-hoc signing so a fresh clone still compiles.
+That fallback works, but Docky needs Accessibility and Screen Recording, and an
+ad-hoc identity changes whenever the binary does, so macOS keeps treating each
+build as a new app and dropping those grants. `Config/Signing.xcconfig` has the
+details.
+
+Configure signing by editing that file, not through Xcode's Signing &
+Capabilities tab — the tab writes literal values into `Docky.xcodeproj` and
+would put a hardcoded team back in the repo.
+
 ## Pull requests
 
 - Branch off `main` and keep changes focused.
@@ -39,8 +61,7 @@ under `Docky/` are picked up automatically without editing the project file.
 
   ```sh
   xcodebuild -project Docky.xcodeproj -scheme Docky \
-    -configuration Debug -destination 'platform=macOS' \
-    CODE_SIGNING_ALLOWED=NO build
+    -configuration Debug -destination 'platform=macOS' build
   ```
 
 - Describe what changed and why, and include before/after notes or screenshots

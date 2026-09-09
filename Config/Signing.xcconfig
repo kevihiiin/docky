@@ -1,0 +1,35 @@
+// Signing configuration for Docky.
+//
+// These settings are deliberately absent from Docky.xcodeproj so that this
+// file is the one place they are defined. Configure signing by editing
+// Signing.local.xcconfig, never through Xcode's Signing & Capabilities tab —
+// that editor writes literal values back into the project file and undoes
+// this.
+//
+// The defaults below are ad-hoc, so a fresh clone builds with no Apple account
+// and no membership in the upstream team. Apple recommends against ad-hoc for
+// day-to-day work (TN3127), because an ad-hoc designated requirement is just a
+// hash of the binary:
+//
+//   - Every rebuild that changes the binary reads as a new app to TCC, so
+//     Docky's Screen Recording grant re-prompts and its Accessibility grant
+//     silently stops working until it is toggled again in System Settings.
+//   - Login-item registration (SMAppService) keys off the same unstable
+//     identity, so launch-at-login can misbehave.
+//   - Ad-hoc code under the hardened runtime normally fails library loading;
+//     Docky gets away with it only because both targets already set
+//     RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION. Removing that would break
+//     the ad-hoc default.
+//
+// So ad-hoc is the fallback that always builds, not the recommended setup. To
+// sign with your own certificate, copy Signing.local.xcconfig.example to
+// Signing.local.xcconfig and fill in your team. A free Apple ID is enough.
+//
+// The release script overrides all of this on the xcodebuild command line,
+// which outranks every xcconfig.
+
+CODE_SIGN_IDENTITY = -
+CODE_SIGN_STYLE = Manual
+DEVELOPMENT_TEAM =
+
+#include? "Signing.local.xcconfig"

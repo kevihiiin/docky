@@ -1,0 +1,16 @@
+// Copy this file to Signing.local.xcconfig (gitignored) to sign local builds
+// with your own certificate instead of the ad-hoc default. This is the setup
+// Apple recommends for day-to-day development.
+//
+// A free Apple ID is enough: add it under Xcode -> Settings -> Accounts, which
+// creates a Personal Team and issues an Apple Development certificate. That
+// same pane shows the Team ID to paste below (select the team, then Manage
+// Certificates / Details). A paid membership is only needed to distribute.
+//
+// Don't read the Team ID out of `security find-identity` — for an Apple
+// Development certificate the code in parentheses is your member ID, not the
+// team ID.
+
+DEVELOPMENT_TEAM = REPLACE_ME
+CODE_SIGN_IDENTITY = Apple Development
+CODE_SIGN_STYLE = Automatic

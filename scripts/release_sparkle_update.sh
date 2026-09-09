@@ -14,6 +14,37 @@ BUILD_VERSION="${BUILD_VERSION:-$(date +%Y%m%d%H%M)}"
 RELEASE_NOTES_FILE="${RELEASE_NOTES_FILE:-}"
 NOTARYTOOL_PROFILE="${NOTARYTOOL_PROFILE:-}"
 
+# Releases need a real Developer ID team, but Config/Signing.xcconfig defaults
+# to ad-hoc so contributors can build without an Apple account. Take the team
+# from the environment, else from the maintainer's gitignored
+# Config/Signing.local.xcconfig.
+#
+# Ask xcodebuild to resolve it rather than parsing the xcconfig here: it is the
+# evaluator the build itself uses, so the #include? chain, trailing comments,
+# [sdk=*] conditionals and $(inherited) all resolve the way the build sees them
+# instead of the way a regex guesses.
+DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-}"
+
+if [[ -z "$DEVELOPMENT_TEAM" ]]; then
+    DEVELOPMENT_TEAM=$(xcodebuild -showBuildSettings -json \
+        -project "$PROJECT_PATH" -scheme "$SCHEME" -configuration "$CONFIGURATION" 2>/dev/null \
+        | /usr/bin/python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((e["buildSettings"].get("DEVELOPMENT_TEAM","") for e in d if e.get("target")=="Docky"), ""))')
+fi
+
+if [[ -z "$DEVELOPMENT_TEAM" ]]; then
+    print -u2 "No signing team configured."
+    print -u2 "Set DEVELOPMENT_TEAM=<team id>, or add DEVELOPMENT_TEAM to Config/Signing.local.xcconfig."
+    exit 1
+fi
+
+# Catch a malformed value here rather than several minutes into the archive,
+# where it surfaces as an opaque provisioning error.
+if [[ ! "$DEVELOPMENT_TEAM" =~ '^[A-Z0-9]{10}$' ]]; then
+    print -u2 "Not a valid Team ID: '$DEVELOPMENT_TEAM'"
+    print -u2 "Expected 10 uppercase alphanumerics (e.g. ABCDE12345)."
+    exit 1
+fi
+
 BUILD_ROOT="$PROJECT_ROOT/build"
 ARCHIVE_PATH="$BUILD_ROOT/$APP_NAME.xcarchive"
 EXPORT_PATH="$BUILD_ROOT/export"
@@ -51,7 +82,7 @@ cat > "$BUILD_ROOT/ExportOptions-DeveloperID.plist" <<EOF
     <key>signingStyle</key>
     <string>automatic</string>
     <key>teamID</key>
-    <string>2KC3797KP9</string>
+    <string>$DEVELOPMENT_TEAM</string>
 </dict>
 </plist>
 EOF
@@ -60,7 +91,10 @@ xcodebuild archive \
     -project "$PROJECT_PATH" \
     -scheme "$SCHEME" \
     -configuration "$CONFIGURATION" \
-    -archivePath "$ARCHIVE_PATH"
+    -archivePath "$ARCHIVE_PATH" \
+    DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+    CODE_SIGN_IDENTITY="Apple Development" \
+    CODE_SIGN_STYLE=Automatic
 
 xcodebuild -exportArchive \
     -archivePath "$ARCHIVE_PATH" \
