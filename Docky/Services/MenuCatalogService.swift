@@ -37,6 +37,24 @@ final class MenuCatalogService: ObservableObject {
         }
     }
 
+    /// The catalog's "open a new window" action for an app, if one is
+    /// curated.
+    ///
+    /// The catalog already carries these, one per app, as AppleScript or as a
+    /// menu-bar click along a named path such as `["File", "New Window"]`.
+    /// That is a far better mechanism than synthesizing a keystroke: the
+    /// shortcut is not even consistent across apps (Cmd-N makes a new *file*
+    /// in several editors), whereas the menu path is what the app itself
+    /// exposes. Supporting another app is then a data change, not a code one.
+    ///
+    /// Matched by the `.new-window` id suffix together with `targetApp`, which
+    /// is the convention every existing entry follows.
+    func newWindowAction(forBundleIdentifier bundleIdentifier: String) -> CatalogActionDefinition? {
+        actionsByID.values.first { action in
+            action.id.hasSuffix(".new-window") && action.targetApp == bundleIdentifier
+        }
+    }
+
     func contextActions(for tile: Tile, modifierFlags: NSEvent.ModifierFlags) -> [ContextAction]? {
         switch tile.content {
         case .app, .folder, .trash:

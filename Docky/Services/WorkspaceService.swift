@@ -123,25 +123,28 @@ final class WorkspaceService: ObservableObject {
 
         let accessibilityGranted = PermissionsService.shared.accessibility == .granted
         let allWindows = accessibilityGranted ? appWindows(bundleIdentifier: bundleIdentifier) : []
-        let visibleWindows = allWindows.filter { !$0.isMinimized }
         let isFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleIdentifier
             && !runningApp.isHidden
 
-        // No AX windows can also mean every window is on another Space (AX
-        // can't see those): activate to switch Spaces instead of reopening.
-        if accessibilityGranted, allWindows.isEmpty {
-            if hasWindowOnAnotherSpace(bundleIdentifier: bundleIdentifier) {
-                runningApp.unhide()
-                runningApp.activateTransferringFrontmost(options: [.activateAllWindows])
-            } else if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
-                openApplication(at: appURL)
-            }
+        // Only windows on the desktop the user is looking at count. A window
+        // on another space is not a window you can be shown without being
+        // moved somewhere you did not ask to go, so for the purpose of
+        // deciding what this click does it may as well not exist.
+        let localWindows = windowsOnActiveSpace(allWindows)
+        let visibleWindows = localWindows.filter { !$0.isMinimized }
+
+        // Nothing here: make something here, rather than travelling to
+        // wherever the app already is.
+        if accessibilityGranted, localWindows.isEmpty {
+            openNewWindowOnThisSpace(runningApp: runningApp, bundleIdentifier: bundleIdentifier)
             return
         }
 
-        // Running but every window is minimized: restore the most-recently-minimized.
-        if accessibilityGranted, visibleWindows.isEmpty, !allWindows.isEmpty,
-           let lastMinimized = minimizedWindows.last(where: { $0.bundleIdentifier == bundleIdentifier }) {
+        // Everything here is minimized: restore the most recent of *those*.
+        // Deliberately not `minimizedWindows.last(...)`, which is app-wide and
+        // would happily restore a window minimized on another desktop.
+        if accessibilityGranted, visibleWindows.isEmpty,
+           let lastMinimized = localWindows.last(where: \.isMinimized) {
             _ = restoreMinimizedWindow(lastMinimized)
             return
         }
@@ -160,34 +163,59 @@ final class WorkspaceService: ObservableObject {
         runningApp.activateTransferringFrontmost(options: [.activateAllWindows])
     }
 
-    /// Whether the window server knows a live, ordinary window for this app
-    /// that isn't on the Space the user is looking at.
+    /// Narrows a window list to the desktop the user is looking at.
     ///
-    /// Previously this scanned `CGWindowListCopyWindowInfo` for off-screen
-    /// windows and confirmed each with `SLSWindowIsOrderedIn`, to discard the
-    /// stale entries CGWindowList keeps serving after a window closes. That
-    /// confirmation also discarded every *minimized* window, because a
-    /// minimized window is ordered out — so an app whose only other-Space
-    /// window was minimized looked like it had no windows anywhere, and the
-    /// click fell through to launching a second copy instead of taking the
-    /// user to it.
+    /// Refreshed synchronously: this decides what a click does, and the user
+    /// may well have changed spaces since the last window event, so a cached
+    /// answer is not good enough here.
     ///
-    /// `WindowServerIndex` distinguishes the two: a closed window belongs to
-    /// no Space, while a minimized one keeps its Space membership. Asking it
-    /// also means "on another Space" is answered against real Space identity
-    /// rather than inferred from off-screen-ness, which is true of any window
-    /// that merely happens to be hidden.
-    private func hasWindowOnAnotherSpace(bundleIdentifier: String) -> Bool {
-        guard let activeSpace = SpaceService.shared.snapshot.activeSpace else {
-            return false
+    /// A window Docky cannot place is kept. Being unable to tell where a
+    /// window is should mean "assume it is in front of you" — the alternative
+    /// is deciding an app has nothing here and opening a duplicate window
+    /// next to the one that was already there.
+    private func windowsOnActiveSpace(_ windows: [AppWindow]) -> [AppWindow] {
+        let spaces = SpaceService.shared
+        spaces.refresh(force: true)
+        guard let activeSpace = spaces.snapshot.activeSpace else {
+            return windows
         }
-        // Synchronous: this decides what a click does, so it must not act on
-        // a snapshot taken before the user changed Spaces.
-        WindowServerIndex.shared.refreshNow()
-        return WindowServerIndex.shared.hasWindowElsewhere(
-            ofBundleIdentifier: bundleIdentifier,
-            excluding: activeSpace
-        )
+        return windows.filter { window in
+            guard let windowID = window.cgWindowID else { return true }
+            let membership = spaces.membership.spaces(of: windowID)
+            return membership.isEmpty || membership.contains(activeSpace.id)
+        }
+    }
+
+    /// Gets the app to put a window on this desktop.
+    ///
+    /// Falls back to plain activation only when the app has no new-window
+    /// strategy — a single-window utility, or one nobody has added to the
+    /// catalog yet. That fallback can still move the user to another space,
+    /// which is precisely what this whole path exists to avoid, so it is a
+    /// last resort and it says so in the log rather than failing silently.
+    private func openNewWindowOnThisSpace(runningApp: NSRunningApplication, bundleIdentifier: String) {
+        let displayName = runningApp.localizedName ?? bundleIdentifier
+
+        guard NewWindowService.shared.canOpenNewWindow(bundleIdentifier: bundleIdentifier) else {
+            NSLog(
+                "[Docky] No new-window strategy for %@; activating instead, which may change Space.",
+                bundleIdentifier
+            )
+            runningApp.unhide()
+            runningApp.activateTransferringFrontmost(options: [.activateAllWindows])
+            return
+        }
+
+        Task { @MainActor in
+            let opened = await NewWindowService.shared.openNewWindow(
+                bundleIdentifier: bundleIdentifier,
+                displayName: displayName
+            )
+            guard !opened else { return }
+            NSLog("[Docky] New window failed for %@; activating instead.", bundleIdentifier)
+            runningApp.unhide()
+            runningApp.activateTransferringFrontmost(options: [.activateAllWindows])
+        }
     }
 
     private func applyFrontmostAppTileClickBehavior(
