@@ -1,0 +1,64 @@
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (Debug)
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Prefer a pinned toolchain over drifting with the runner image, but fall
+      # back to the image default rather than failing if that exact version is
+      # gone. Docky targets macOS 14.0 and the README asks for Xcode 16+.
+      - name: Select Xcode
+        run: |
+          ls -d /Applications/Xcode*.app || true
+          if [ -d /Applications/Xcode_16.4.app ]; then
+            sudo xcode-select -switch /Applications/Xcode_16.4.app
+          fi
+
+      - name: Show versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcodebuild -list -project Docky.xcodeproj
+
+      - name: Cache SPM
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: ${{ runner.os }}-spm-
+
+      # CI has no signing identity and no provisioning profile, so signing is
+      # disabled outright. These settings are passed on the command line, which
+      # outranks both the project file and Config/Signing.xcconfig — so the job
+      # is unaffected by however signing happens to be configured in the repo.
+      # This only verifies that the code compiles and links; it does not
+      # produce a runnable, distributable app.
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Docky.xcodeproj \
+            -scheme Docky \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="" \
+            ENABLE_HARDENED_RUNTIME=NO \
+            build
