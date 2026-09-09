@@ -130,7 +130,7 @@ final class WorkspaceService: ObservableObject {
         // No AX windows can also mean every window is on another Space (AX
         // can't see those): activate to switch Spaces instead of reopening.
         if accessibilityGranted, allWindows.isEmpty {
-            if hasWindowOnAnotherSpace(pid: runningApp.processIdentifier) {
+            if hasWindowOnAnotherSpace(bundleIdentifier: bundleIdentifier) {
                 runningApp.unhide()
                 runningApp.activateTransferringFrontmost(options: [.activateAllWindows])
             } else if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
@@ -160,23 +160,34 @@ final class WorkspaceService: ObservableObject {
         runningApp.activateTransferringFrontmost(options: [.activateAllWindows])
     }
 
-    /// Whether the window server knows a live, ordinary window for `pid` that
-    /// isn't on the active Space (ordered-in filters stale closed-window entries).
-    private func hasWindowOnAnotherSpace(pid: pid_t) -> Bool {
-        guard let entries = CGWindowListCopyWindowInfo([], kCGNullWindowID) as? [[String: Any]] else {
+    /// Whether the window server knows a live, ordinary window for this app
+    /// that isn't on the Space the user is looking at.
+    ///
+    /// Previously this scanned `CGWindowListCopyWindowInfo` for off-screen
+    /// windows and confirmed each with `SLSWindowIsOrderedIn`, to discard the
+    /// stale entries CGWindowList keeps serving after a window closes. That
+    /// confirmation also discarded every *minimized* window, because a
+    /// minimized window is ordered out — so an app whose only other-Space
+    /// window was minimized looked like it had no windows anywhere, and the
+    /// click fell through to launching a second copy instead of taking the
+    /// user to it.
+    ///
+    /// `WindowServerIndex` distinguishes the two: a closed window belongs to
+    /// no Space, while a minimized one keeps its Space membership. Asking it
+    /// also means "on another Space" is answered against real Space identity
+    /// rather than inferred from off-screen-ness, which is true of any window
+    /// that merely happens to be hidden.
+    private func hasWindowOnAnotherSpace(bundleIdentifier: String) -> Bool {
+        guard let activeSpace = SpaceService.shared.snapshot.activeSpace else {
             return false
         }
-        let connection = CGSMainConnectionID()
-        return entries.contains { entry in
-            guard (entry[kCGWindowOwnerPID as String] as? pid_t) == pid,
-                  (entry[kCGWindowLayer as String] as? Int) == 0,
-                  ((entry[kCGWindowAlpha as String] as? Double) ?? 0) > 0,
-                  (entry[kCGWindowIsOnscreen as String] as? Bool) != true,
-                  let windowID = entry[kCGWindowNumber as String] as? CGWindowID else {
-                return false
-            }
-            return SLSWindowIsOrderedIn(connection, windowID)
-        }
+        // Synchronous: this decides what a click does, so it must not act on
+        // a snapshot taken before the user changed Spaces.
+        WindowServerIndex.shared.refreshNow()
+        return WindowServerIndex.shared.hasWindowElsewhere(
+            ofBundleIdentifier: bundleIdentifier,
+            excluding: activeSpace
+        )
     }
 
     private func applyFrontmostAppTileClickBehavior(

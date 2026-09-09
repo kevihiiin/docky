@@ -56,6 +56,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         TileStore.shared.syncPreferencesFromSystemDockIfNeeded()
         ProfileTriggerEngine.shared.start()
 
+        // Classify only the windows the registry already tracks: it owns the
+        // decision about what counts as a real window, and reusing it keeps
+        // system-owned surfaces such as the desktop out of the space model.
+        SpaceService.shared.start(windowIDs: {
+            Set(WindowRegistry.shared.windows.compactMap(\.cgWindowID))
+        })
+
+        // Reuses WorkspaceService's cache so the index inherits its
+        // regular-activation-policy filtering and Docky's self-exclusion.
+        WindowServerIndex.shared.start(owners: {
+            var map: [pid_t: String] = [:]
+            for app in WorkspaceService.shared.runningApps {
+                map[app.processIdentifier] = app.bundleIdentifier
+            }
+            return map
+        })
+
         PermissionsService.shared.refresh()
 
         if PermissionsService.shared.setupComplete {
