@@ -131,12 +131,19 @@ enum SpaceServiceProbe {
         }
     }
 
-    /// Writes the transcript next to the app's container so it survives being
+    /// Writes the transcript to a fixed, guessable path so it survives being
     /// launched with `open`, which detaches stdout.
+    ///
+    /// `~/Library/Logs` rather than the process temp directory: the latter is a
+    /// per-launch `/var/folders/...` path nobody can find without reading the
+    /// log line that names it.
     private static func writeTranscript() {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("docky-space-probe.txt")
+        let logs = FileManager.default
+            .homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs", isDirectory: true)
+        let url = logs.appendingPathComponent("docky-space-probe.txt")
         do {
+            try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
             try transcript.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
             // NSLog rather than print: this line has to be findable in Console
             // even when stdout went nowhere.
