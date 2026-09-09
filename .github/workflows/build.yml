@@ -1,0 +1,79 @@
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (Debug)
+    # Must be an image carrying Xcode 26: the source guards features with
+    # `#available(macOS 26.0, *)`, which needs the macOS 26 SDK. Older Xcodes
+    # reject those as an unknown platform version, so macos-15 cannot build
+    # this project despite the README's "Xcode 16+".
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin a known-good Xcode for reproducibility, but fall back to the newest
+      # installed one rather than failing outright when the image drops that
+      # exact version. Assert the major version afterwards so an image change
+      # that removes Xcode 26 reports why instead of failing later with a
+      # confusing wall of availability errors.
+      - name: Select Xcode
+        run: |
+          ls -d /Applications/Xcode*.app || true
+          if [ -d /Applications/Xcode_26.3.app ]; then
+            sudo xcode-select -switch /Applications/Xcode_26.3.app
+          else
+            newest=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+            echo "Xcode 26.3 not present; falling back to $newest"
+            sudo xcode-select -switch "$newest"
+          fi
+          major=$(xcodebuild -version | sed -n 's/^Xcode \([0-9]*\).*/\1/p')
+          if [ "$major" -lt 26 ]; then
+            echo "::error::Xcode $major is too old. Docky uses #available(macOS 26.0, *) and needs the macOS 26 SDK."
+            exit 1
+          fi
+
+      - name: Show versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcodebuild -list -project Docky.xcodeproj
+
+      - name: Cache SPM
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: ${{ runner.os }}-spm-
+
+      # CI has no signing identity and no provisioning profile, so signing is
+      # disabled outright. These settings are passed on the command line, which
+      # outranks both the project file and Config/Signing.xcconfig — so the job
+      # is unaffected by however signing happens to be configured in the repo.
+      # This only verifies that the code compiles and links; it does not
+      # produce a runnable, distributable app.
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Docky.xcodeproj \
+            -scheme Docky \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="" \
+            ENABLE_HARDENED_RUNTIME=NO \
+            build
