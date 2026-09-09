@@ -49,10 +49,29 @@ final class TileStore: ObservableObject {
             defaults.set(Array(expandedInlineAppFolderIDs), forKey: Self.expandedInlineAppFolderIDsKey)
         }
     }
-    /// Currently displayed unpinned running apps, in visual order. May contain
-    /// one "ghost" entry at the end, an app that recently exited but sat at
-    /// the rightmost position, preserved until something newer takes its slot.
-    private var displayedRunning: [RunningApp] = []
+    /// Which set of running apps a `displayedRunning` list describes. There is
+    /// only one today — every running app the dock knows about — but the
+    /// position memory below is per-set, not global: if the dock ever shows a
+    /// subset of running apps, each subset has to remember its own visual
+    /// order, or switching between them re-derives order from launch date and
+    /// the icons visibly rearrange.
+    private enum RunningAppScope: Hashable {
+        case all
+    }
+
+    private var currentRunningAppScope: RunningAppScope { .all }
+
+    /// Currently displayed unpinned running apps, in visual order, stored per
+    /// scope. May contain one "ghost" entry at the end, an app that recently
+    /// exited but sat at the rightmost position, preserved until something
+    /// newer takes its slot.
+    private var displayedRunningByScope: [RunningAppScope: [RunningApp]] = [:]
+
+    /// The displayed list for the scope the dock is currently showing.
+    private var displayedRunning: [RunningApp] {
+        get { displayedRunningByScope[currentRunningAppScope] ?? [] }
+        set { displayedRunningByScope[currentRunningAppScope] = newValue }
+    }
 
     private var notificationObserver: NSObjectProtocol?
     private var cancellables: Set<AnyCancellable> = []
@@ -2193,12 +2212,10 @@ final class TileStore: ObservableObject {
         let pinnedBundleIDs = Self.bundleIdentifiers(in: pinnedWithoutFinder)
         let hiddenBundleIDs = Set(preferences.hiddenAppBundleIdentifiers)
 
-        let currentUnpinned = WorkspaceService.shared.runningApps
-            .filter {
-                $0.bundleIdentifier != Self.finderBundleID
-                    && !pinnedBundleIDs.contains($0.bundleIdentifier)
-                    && !hiddenBundleIDs.contains($0.bundleIdentifier)
-            }
+        let currentUnpinned = unpinnedRunningApps(
+            pinnedBundleIDs: pinnedBundleIDs,
+            hiddenBundleIDs: hiddenBundleIDs
+        )
 
         displayedRunning = resolveDisplayedRunning(
             currentUnpinned: currentUnpinned,
@@ -2490,6 +2507,21 @@ final class TileStore: ObservableObject {
             widgets: widgets,
             span: .three
         )
+    }
+
+    /// The running apps that belong in the dock's running section: everything
+    /// running except Finder, anything already pinned, and anything the user
+    /// hid. Finder is excluded here because `rebuildTiles` injects it as a
+    /// fixed leading tile rather than letting it float with the running set.
+    private func unpinnedRunningApps(
+        pinnedBundleIDs: Set<String>,
+        hiddenBundleIDs: Set<String>
+    ) -> [RunningApp] {
+        WorkspaceService.shared.runningApps.filter {
+            $0.bundleIdentifier != Self.finderBundleID
+                && !pinnedBundleIDs.contains($0.bundleIdentifier)
+                && !hiddenBundleIDs.contains($0.bundleIdentifier)
+        }
     }
 
     /// Preserves rightmost-unpinned-app position across exits. Rules:
