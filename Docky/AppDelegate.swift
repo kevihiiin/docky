@@ -584,6 +584,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
         windowPreviewsItem.target = self
 
+        let spaceProbeItem = NSMenuItem(
+            title: "Space Service Probe…",
+            action: #selector(runSpaceServiceProbe(_:)),
+            keyEquivalent: ""
+        )
+        spaceProbeItem.target = self
+
         let settingsItem = NSMenuItem(
             title: "Settings…",
             action: #selector(showSettingsWindow(_:)),
@@ -617,6 +624,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         debugMenu.addItem(showOnboardingItem)
         debugMenu.addItem(overrideSettingsItem)
         debugMenu.addItem(windowPreviewsItem)
+        debugMenu.addItem(spaceProbeItem)
 #if DEBUG
         debugMenu.addItem(makeSimulatedOSVersionMenuItem())
 #endif
@@ -698,6 +706,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func showWindowPreviewsDebug(_ sender: Any?) {
         #if DEBUG
         WindowPreviewsDebugWindowController.shared.show()
+        #endif
+    }
+
+    /// Dumps the SkyLight space SPI's behavior on this machine to the console:
+    /// which symbols resolved, the raw topology payload, whether the three
+    /// ways of asking for the active space agree, and whether every minimized
+    /// window still reports one. This is how the space support gets verified
+    /// on a new macOS release — none of it is answerable without a live
+    /// WindowServer.
+    @objc private func runSpaceServiceProbe(_ sender: Any?) {
+        #if DEBUG
+        SpaceServiceProbe.dumpState()
         #endif
     }
 
