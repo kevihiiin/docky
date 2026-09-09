@@ -1,7 +1,6 @@
 build/
 DerivedData/
-*.xcodeproj/xcuserdata/
-*.xcworkspace/xcuserdata/
+**/xcuserdata/
 .DS_Store
 
 # Local signing override (see Config/Signing.local.xcconfig.example)
